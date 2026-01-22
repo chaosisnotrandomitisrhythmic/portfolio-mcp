@@ -1,13 +1,10 @@
-# US options data APIs with Greeks: Keep Polygon or switch?
+# US Options Data APIs with Greeks
 
-**Research date:** 2026-01-21
-**Current subscription:** Polygon.io Stocks Starter ($29) + Options Starter ($29) = $58/mo
-**Subscription started:** 2026-01-21 17:57 CET
-**Evaluation deadline:** ~February 20, 2026
+A comprehensive comparison of options data providers for retail traders who need real Greeks (delta, gamma, theta, vega) without enterprise pricing.
 
 ---
 
-**Your current Polygon.io + ORATS setup at $58/month is competitive, but two alternatives offer meaningful savings: Theta Data ($40/month) and Interactive Brokers ($11.50/month with account).** The decision hinges on whether you're willing to open a minimal brokerage account (IBKR) or prefer a pure data API (Theta Data). Most other providers either exceed your budget, lack real Greeks, or require brokerage accounts with additional complications for EU residents.
+**TL;DR:** Polygon.io + ORATS at $58/month is competitive, but two alternatives offer meaningful savings: Theta Data ($40/month) and Interactive Brokers (~$12/month with account). The decision hinges on whether you're willing to open a minimal brokerage account (IBKR) or prefer a pure data API (Theta Data). Most other providers either exceed budget, lack real Greeks, or require brokerage accounts with hidden fees.
 
 ---
 

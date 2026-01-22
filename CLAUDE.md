@@ -44,8 +44,7 @@ portfolio-mcp/
 │   ├── server.py        # FastMCP server definition and tool wrappers
 │   └── tools.py         # Core business logic (analysis, Polygon API)
 ├── docs/
-│   ├── 2026-01-21_options_data_api_research.md  # API provider comparison
-│   └── TODO_polygon_evaluation.md               # Evaluation checklist
+│   └── options_data_api_research.md  # API provider comparison
 ├── .env                  # API keys (gitignored)
 ├── .env.example          # Template for .env
 ├── CLAUDE_PROJECT.md     # Claude Desktop project setup instructions
@@ -79,10 +78,9 @@ The code loads from `.env` file automatically. No need to set in Claude Desktop 
 
 ## Data Provider: Polygon.io
 
-- **Current plan:** Stocks Starter ($29/mo) + Options Starter ($29/mo) = $58/mo
+- **Recommended plan:** Stocks Starter ($29/mo) + Options Starter ($29/mo) = $58/mo
 - **Data delay:** 15 minutes (Starter plan limitation)
 - **Greeks source:** ORATS (via Polygon snapshot API)
-- **Evaluation deadline:** Feb 2026 - see docs/TODO_polygon_evaluation.md
 
 ## Important Notes
 
@@ -114,10 +112,10 @@ The MCP server is configured in `~/Library/Application Support/Claude/claude_des
 {
   "mcpServers": {
     "portfolio-mcp": {
-      "command": "/Users/chaosisnotrandomitisrythmic/.local/bin/uv",
+      "command": "uv",
       "args": [
         "--directory",
-        "/Users/chaosisnotrandomitisrythmic/mcp-servers/portfolio-mcp",
+        "/path/to/portfolio-mcp",
         "run",
         "portfolio-mcp"
       ],
@@ -126,6 +124,8 @@ The MCP server is configured in `~/Library/Application Support/Claude/claude_des
   }
 }
 ```
+
+Replace `/path/to/portfolio-mcp` with the actual path where you cloned this repository.
 
 ## Common Tasks
 
@@ -143,5 +143,6 @@ The MCP server is configured in `~/Library/Application Support/Claude/claude_des
 ### Debugging MCP server issues
 Check Claude Desktop logs:
 ```bash
+# macOS
 tail -f ~/Library/Logs/Claude/mcp-server-portfolio-mcp.log
 ```

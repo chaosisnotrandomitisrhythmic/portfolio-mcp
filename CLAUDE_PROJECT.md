@@ -303,10 +303,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "portfolio-mcp": {
-      "command": "/Users/chaosisnotrandomitisrythmic/.local/bin/uv",
+      "command": "uv",
       "args": [
         "--directory",
-        "/Users/chaosisnotrandomitisrythmic/mcp-servers/portfolio-mcp",
+        "/path/to/portfolio-mcp",
         "run",
         "portfolio-mcp"
       ],
@@ -315,6 +315,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
+
+Replace `/path/to/portfolio-mcp` with the actual path where you cloned this repository.
 
 **Note:** The API key is loaded from `.env` file in the portfolio-mcp directory. No need to add it to the config.
 

@@ -20,3 +20,7 @@ __pycache__/
 
 # Screenshots from testing
 Screenshot*.png
+
+# Jupyter notebooks (development only)
+*.ipynb
+.ipynb_checkpoints/

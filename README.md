@@ -1,20 +1,43 @@
 # Portfolio MCP Server
 
-MCP server for portfolio risk analysis with research mode integration. Upload Charles Schwab CSV exports through Claude Desktop to get alerts, then run deep research that accumulates over time.
+An MCP (Model Context Protocol) server for portfolio risk analysis and options monitoring. Integrates with Claude Desktop to analyze brokerage CSV exports, generate prioritized alerts, and find optimal options trades.
 
-Uses **Polygon.io** for market data (stock quotes, option chains with real Greeks from ORATS).
+## Features
+
+- **Portfolio Analysis** - Upload CSV exports to get instant risk alerts
+- **Option Chain Data** - Real Greeks (delta, gamma, theta, vega) from ORATS via Polygon.io
+- **Trade Finders** - Discover optimal covered calls and cash-secured puts
+- **Research Integration** - Generate prompts for deep analysis in Claude's Research mode
+- **Temporal Awareness** - Market session detection and timestamped research documents
+
+## How It Works
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Schwab CSV     │────▶│  Portfolio MCP  │────▶│  Claude Desktop │
+│  Export         │     │  Server         │     │  Analysis       │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+                               │
+                               ▼
+                        ┌─────────────────┐
+                        │  Polygon.io     │
+                        │  Market Data    │
+                        └─────────────────┘
+```
 
 ## Quick Start
 
 ```bash
+# Clone and install
+git clone https://github.com/yourusername/portfolio-mcp.git
 cd portfolio-mcp
 uv sync
 
-# Set up API key
+# Configure API key
 cp .env.example .env
 # Edit .env and add your Polygon.io API key
 
-# Test with MCP inspector
+# Test the server
 npx @modelcontextprotocol/inspector uv --directory . run portfolio-mcp
 ```
 
@@ -22,14 +45,13 @@ npx @modelcontextprotocol/inspector uv --directory . run portfolio-mcp
 
 This server requires a [Polygon.io](https://polygon.io) API key for market data.
 
-**Recommended plans:** Stocks Starter ($29/mo) + Options Starter ($29/mo) = $58/mo
+**Recommended:** Stocks Starter ($29/mo) + Options Starter ($29/mo) = $58/mo
 
 1. Sign up at [polygon.io](https://polygon.io/pricing)
 2. Get your API key from the dashboard
-3. Create `.env` file: `cp .env.example .env`
-4. Add your key: `POLYGON_API_KEY=your_key_here`
+3. Add to `.env`: `POLYGON_API_KEY=your_key_here`
 
-**Note:** All market data is 15-minute delayed on Starter plans. This is sufficient for daily analysis but not for real-time execution.
+> **Note:** All market data is 15-minute delayed on Starter plans. Sufficient for daily analysis but not real-time execution.
 
 ## Daily Workflow
 
@@ -51,23 +73,26 @@ This server requires a [Polygon.io](https://polygon.io) API key for market data.
 ## Tools
 
 ### Portfolio Analysis
+
 | Tool | Description |
 |------|-------------|
 | `get_market_time` | NYC timestamp + market session (REGULAR/PRE_MARKET/AFTER_HOURS/WEEKEND) |
 | `analyze_portfolio` | Alerts, summary, and holdings from CSV |
 | `generate_research_prompts` | Research prompts based on alerts for Research mode |
 
-### Option Chain & Trade Finding (Polygon.io - 15-min delayed)
+### Options Data (15-min delayed)
+
 | Tool | Description |
 |------|-------------|
 | `get_stock_quote` | Current price, change, volume, VWAP, market cap |
-| `get_option_chain` | Fetch calls/puts with real Greeks (delta, gamma, theta, vega) and IV |
-| `find_covered_call` | Find optimal CC candidates ranked by target delta (default 0.20) |
-| `find_cash_secured_put` | Find optimal CSP candidates for your available cash |
+| `get_option_chain` | Fetch calls/puts with real Greeks and IV |
+| `find_covered_call` | Find optimal CC candidates ranked by target delta |
+| `find_cash_secured_put` | Find optimal CSP candidates for available cash |
 
-#### Example: Finding a Covered Call
+### Example: Finding a Covered Call
+
 ```
-"Find covered call options for my 100 NVDA shares targeting 0.20 delta"
+User: "Find covered call options for my 100 NVDA shares targeting 0.20 delta"
 
 Returns top 10 candidates with:
 - Strike, expiration, DTE
@@ -76,55 +101,29 @@ Returns top 10 candidates with:
 - Upside to strike, max return, breakeven
 ```
 
-#### Example: Finding a Cash-Secured Put
-```
-"Find a cash-secured put for NVDA with my $20k cash"
-
-Returns top 10 candidates with:
-- Strike, expiration, DTE
-- Last price, IV, real delta (from ORATS)
-- Collateral required, premium, annualized return
-- Discount to current price, cost basis if assigned
-```
-
 ## Alert Types
 
 | Alert | Meaning |
 |-------|---------|
-| 🚨 ITM Options | Short options in the money |
+| 🚨 ITM Options | Short options in the money - assignment risk |
 | 💰 Cash Shortage | Not enough cash for short put exposure |
 | ⚠️ High Delta | Assignment risk (delta > 0.5) |
 | ⏰ Expiring Soon | Options expiring within 7 days |
 | 📉 Large Losses | Positions down >10% |
 | ⚠️ Naked Options | Short options without underlying |
 
-## Research Document Format
-
-All research outputs follow this naming convention:
-```
-YYYY-MM-DD_HHMMSS_ET_[topic].md
-```
-
-Example: `2026-01-17_143022_ET_NVDA_research.md`
-
-Each document includes:
-- **Header**: Timestamp + market session
-- **Data Snapshot**: Facts that will become stale (prices, IV, targets)
-- **Observations**: Patterns that may persist (thesis, risks)
-- **Decisions Made**: Actions taken for tracking
-
 ## Claude Desktop Setup
 
-1. Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "portfolio-mcp": {
-      "command": "/Users/chaosisnotrandomitisrythmic/.local/bin/uv",
+      "command": "uv",
       "args": [
         "--directory",
-        "/Users/chaosisnotrandomitisrythmic/Desktop/prescientai/overspent_detector/portfolio-mcp",
+        "/path/to/portfolio-mcp",
         "run",
         "portfolio-mcp"
       ],
@@ -134,35 +133,49 @@ Each document includes:
 }
 ```
 
-2. Restart Claude Desktop
+Replace `/path/to/portfolio-mcp` with your actual installation path.
 
-3. Create a project with settings from [CLAUDE_PROJECT.md](CLAUDE_PROJECT.md)
+See [CLAUDE_PROJECT.md](CLAUDE_PROJECT.md) for complete project setup instructions including custom instructions for optimal Claude behavior.
 
 ## Data Format
 
-Expects Schwab "Individual Positions" CSV with columns:
+Supports Charles Schwab "Individual Positions" CSV exports with columns:
 - Symbol, Qty, Price, Mkt Val
 - Gain %, Security Type, Delta
 
 Handles Schwab's Excel-escaped format (`="$186.23"`).
 
-## Temporal Awareness
+## Tech Stack
 
-The system is designed for time-series knowledge accumulation:
+- **Python 3.11+** with [uv](https://github.com/astral-sh/uv) for dependency management
+- **[FastMCP](https://github.com/jlowin/fastmcp)** for MCP server implementation
+- **[Polygon.io](https://polygon.io)** for market data with ORATS Greeks
+- **Pandas** for CSV parsing and data manipulation
 
-- **get_market_time**: Always called first to establish context
-- **Document timestamps**: Every research output is dated with ET timestamp
-- **Session awareness**: Distinguishes market open, pre-market, after-hours, weekend
-- **Recency weighting**: Recent research weighted more heavily than old
-- **Stale vs persistent**: Data snapshots age out; observations may persist
+## Architecture
 
-## Memory (Automatic)
+```
+src/portfolio_mcp/
+├── __init__.py     # Package exports
+├── server.py       # MCP tool definitions (FastMCP)
+└── tools.py        # Core business logic
+    ├── Market time & session detection
+    ├── CSV parsing (Schwab format)
+    ├── Alert generation & prioritization
+    ├── Polygon.io API integration
+    └── Trade finding algorithms
+```
 
-Claude Desktop has **automatic memory** that synthesizes from your conversations:
+## Contributing
 
-- No manual configuration required
-- Tell Claude your preferences naturally: "I use wheel strategy on tech stocks..."
-- Claude learns your trading style, risk tolerances, and patterns over time
-- Memory persists across sessions and updates automatically
+Contributions welcome! Please read the existing code style and add tests for new features.
 
-See [CLAUDE_PROJECT.md](CLAUDE_PROJECT.md) for full setup instructions.
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+## Acknowledgments
+
+- [Anthropic](https://anthropic.com) for Claude and the MCP protocol
+- [Polygon.io](https://polygon.io) for market data APIs
+- [ORATS](https://orats.com) for options analytics (via Polygon)
