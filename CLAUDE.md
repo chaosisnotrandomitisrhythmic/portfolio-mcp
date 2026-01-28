@@ -16,9 +16,10 @@ This file provides guidance to Claude Code when working with this repository.
 
 - **Python 3.11+** with `uv` for dependency management
 - **FastMCP** for MCP server implementation
+- **Modal** for serverless cloud deployment
 - **Polygon.io** for market data (stocks + options with Greeks)
-- **Modal** for serverless cloud deployment with Google OAuth
 - **Pandas** for CSV parsing and data manipulation
+- **Langfuse** for observability and tracing
 
 ## Quick Commands
 
@@ -41,12 +42,14 @@ uv run python -c "from src.portfolio_mcp.tools import get_stock_quote; print(get
 ```
 portfolio-mcp/
 ├── src/portfolio_mcp/
-│   ├── __init__.py      # Package init, exports run_server
-│   ├── server.py        # FastMCP server definition and tool wrappers (local)
-│   └── tools.py         # Core business logic (analysis, Polygon API)
-├── modal_app.py          # Modal cloud deployment with Google OAuth
+│   ├── __init__.py       # Package init, exports run_server
+│   ├── server.py         # FastMCP server (local stdio mode)
+│   ├── tools.py          # Core business logic (analysis, Polygon API)
+│   └── observability.py  # Langfuse tracing for tool calls
 ├── docs/
-│   └── options_data_api_research.md  # API provider comparison
+│   ├── options_data_api_research.md  # API provider comparison
+│   └── langfuse/         # Langfuse integration docs
+├── modal_app.py          # Modal cloud deployment (OAuth + HTTP)
 ├── .env                  # API keys (gitignored)
 ├── .env.example          # Template for .env
 ├── CLAUDE_PROJECT.md     # Claude Desktop project setup instructions
@@ -129,53 +132,6 @@ The MCP server is configured in `~/Library/Application Support/Claude/claude_des
 
 Replace `/path/to/portfolio-mcp` with the actual path where you cloned this repository.
 
-## Cloud Deployment (Modal)
-
-The server is deployed to Modal for mobile/remote access with Google OAuth.
-
-### Deployment URL
-```
-https://chaosisnotrandomitisrhythmic--portfolio-mcp-web.modal.run/mcp
-```
-
-### Key Files
-- `modal_app.py` - Modal deployment configuration with OAuth
-
-### Modal Secrets
-- `polygon-api-key` - Polygon.io API key
-- `google-oauth` - Google OAuth client ID and secret
-- `mcp-jwt-key` - JWT signing key for token validation
-- `mcp-allowed-emails` - Comma-separated list of authorized emails
-
-### Modal Resources
-- `portfolio-mcp-oauth` (Dict) - Persistent OAuth client storage
-
-### Deploy Commands
-```bash
-# Deploy to Modal
-modal deploy modal_app.py
-
-# Check logs
-modal app logs portfolio-mcp
-
-# Test tools directly (bypasses OAuth)
-modal run modal_app.py::test_tools
-```
-
-### Authentication Flow
-1. User connects via Claude Desktop/iOS with connector URL
-2. Server redirects to Google OAuth
-3. User authenticates with Google
-4. Server validates email against allowlist
-5. If authorized, user can access tools
-
-### Adding Authorized Users
-```bash
-modal secret create mcp-allowed-emails --force \
-  ALLOWED_EMAILS=user1@example.com,user2@example.com
-modal deploy modal_app.py
-```
-
 ## Common Tasks
 
 ### Adding a new tool
@@ -195,3 +151,76 @@ Check Claude Desktop logs:
 # macOS
 tail -f ~/Library/Logs/Claude/mcp-server-portfolio-mcp.log
 ```
+
+## Cloud Deployment (Modal)
+
+The server can be deployed to Modal for remote/mobile access.
+
+### URL
+https://chaosisnotrandomitisrhythmic--portfolio-mcp-web.modal.run
+
+### Modal Secrets Required
+```bash
+# Market data
+modal secret create polygon-api-key POLYGON_API_KEY=your_key
+
+# Google OAuth
+modal secret create google-oauth \
+    GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com \
+    GOOGLE_CLIENT_SECRET=GOCSPX-your_secret
+
+# Allowed emails (comma-separated)
+modal secret create mcp-allowed-emails ALLOWED_EMAILS=user@example.com
+
+# JWT signing key
+modal secret create mcp-jwt-key JWT_SIGNING_KEY=$(openssl rand -base64 32)
+
+# Langfuse observability
+modal secret create langfuse \
+    LANGFUSE_SECRET_KEY=sk-lf-xxx \
+    LANGFUSE_PUBLIC_KEY=pk-lf-xxx \
+    LANGFUSE_HOST=https://cloud.langfuse.com
+```
+
+### Deploy Commands
+```bash
+# Local development (hot reload)
+modal serve modal_app.py
+
+# Production deployment
+modal deploy modal_app.py
+
+# Test tools directly (bypasses OAuth)
+modal run modal_app.py::test_tools
+
+# View logs
+modal app logs portfolio-mcp
+```
+
+### Authentication
+Uses Google OAuth via FastMCP's GoogleProvider:
+- Claude Desktop: Add connector URL, OAuth flow handled automatically
+- Claude Mobile: Add connector in app, login with Google when prompted
+- Access restricted to emails in `mcp-allowed-emails` secret
+
+## Observability (Langfuse)
+
+Tool calls are traced with Langfuse when credentials are configured.
+
+### What's Traced
+- Tool name and duration
+- Input arguments
+- Output results
+- User ID (from OAuth email)
+- Errors
+
+### View Traces
+https://cloud.langfuse.com → Select project → Traces
+
+### Key Files
+- `src/portfolio_mcp/observability.py` - Tracing setup and decorators
+- `modal_app.py` - Initializes tracing, applies `@observe_tool` to all tools
+
+### Disabling Tracing
+Simply remove the `langfuse` secret from Modal to disable tracing.
+No code changes needed.

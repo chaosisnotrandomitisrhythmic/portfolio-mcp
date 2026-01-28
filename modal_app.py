@@ -58,9 +58,14 @@ image = (
         "fastapi>=0.115.0",
         "pandas>=2.0.0",
         "polygon-api-client>=1.14.0",
+        # Langfuse observability
+        "langfuse>=3.0.0",
     )
     .add_local_dir(local_src, remote_path="/root/src")
 )
+
+# Langfuse secret for observability
+langfuse_secret = modal.Secret.from_name("langfuse")
 
 
 @app.function(
@@ -70,6 +75,7 @@ image = (
         modal.Secret.from_name("google-oauth"),
         modal.Secret.from_name("mcp-allowed-emails"),
         modal.Secret.from_name("mcp-jwt-key"),
+        langfuse_secret,
     ],
 )
 @modal.asgi_app()
@@ -92,8 +98,12 @@ def web():
     from fastmcp import FastMCP
     from fastmcp.server.auth.providers.google import GoogleProvider
 
-    # Import tools from our package
+    # Import tools and observability from our package
     from portfolio_mcp import tools
+    from portfolio_mcp.observability import init_langfuse, trace_tool, flush_traces
+
+    # Initialize Langfuse tracing (no-op if credentials not set)
+    init_langfuse()
 
     # Load allowed emails from environment (comma-separated)
     ALLOWED_EMAILS = set(
@@ -197,30 +207,48 @@ def web():
 
         return user_email
 
-    # Register all tools with email authorization
+    # Register all tools with email authorization and observability tracing
     @mcp.tool()
     def mcp_get_market_time() -> dict:
         """Get current NYC market time and session status."""
-        check_email_authorized()
-        return tools.get_market_time()
+        user_email = check_email_authorized()
+        result = trace_tool("get_market_time", {}, user_email)(
+            lambda: tools.get_market_time()
+        )
+        flush_traces()
+        return result
 
     @mcp.tool()
     def mcp_analyze_portfolio(csv_content: str) -> dict:
         """Analyze a Charles Schwab portfolio CSV export."""
-        check_email_authorized()
-        return tools.analyze_portfolio(csv_content)
+        user_email = check_email_authorized()
+        result = trace_tool(
+            "analyze_portfolio", {"csv_length": len(csv_content)}, user_email
+        )(lambda: tools.analyze_portfolio(csv_content))
+        flush_traces()
+        return result
 
     @mcp.tool()
     def mcp_generate_research_prompts(analysis: dict) -> dict:
         """Generate research prompts based on portfolio analysis."""
-        check_email_authorized()
-        return tools.generate_research_prompts(analysis)
+        user_email = check_email_authorized()
+        result = trace_tool(
+            "generate_research_prompts",
+            {"analysis_keys": list(analysis.keys())},
+            user_email,
+        )(lambda: tools.generate_research_prompts(analysis))
+        flush_traces()
+        return result
 
     @mcp.tool()
     def mcp_get_stock_quote(symbol: str) -> dict:
         """Get stock quote from Polygon.io (15-min delayed)."""
-        check_email_authorized()
-        return tools.get_stock_quote(symbol)
+        user_email = check_email_authorized()
+        result = trace_tool("get_stock_quote", {"symbol": symbol}, user_email)(
+            lambda: tools.get_stock_quote(symbol)
+        )
+        flush_traces()
+        return result
 
     @mcp.tool()
     def mcp_get_option_chain(
@@ -232,15 +260,27 @@ def web():
         limit: int = 20,
     ) -> dict:
         """Get option chain with Greeks from Polygon.io (15-min delayed)."""
-        check_email_authorized()
-        return tools.get_option_chain(
-            symbol,
-            expiration_date,
-            option_type,
-            strike_price_gte,
-            strike_price_lte,
-            limit,
+        user_email = check_email_authorized()
+        inputs = {
+            "symbol": symbol,
+            "expiration_date": expiration_date,
+            "option_type": option_type,
+            "strike_price_gte": strike_price_gte,
+            "strike_price_lte": strike_price_lte,
+            "limit": limit,
+        }
+        result = trace_tool("get_option_chain", inputs, user_email)(
+            lambda: tools.get_option_chain(
+                symbol,
+                expiration_date,
+                option_type,
+                strike_price_gte,
+                strike_price_lte,
+                limit,
+            )
         )
+        flush_traces()
+        return result
 
     @mcp.tool()
     def mcp_find_covered_call(
@@ -252,10 +292,22 @@ def web():
         max_days: int = 45,
     ) -> dict:
         """Find optimal covered call candidates."""
-        check_email_authorized()
-        return tools.find_covered_call(
-            symbol, shares, min_premium, max_delta, min_days, max_days
+        user_email = check_email_authorized()
+        inputs = {
+            "symbol": symbol,
+            "shares": shares,
+            "min_premium": min_premium,
+            "max_delta": max_delta,
+            "min_days": min_days,
+            "max_days": max_days,
+        }
+        result = trace_tool("find_covered_call", inputs, user_email)(
+            lambda: tools.find_covered_call(
+                symbol, shares, min_premium, max_delta, min_days, max_days
+            )
         )
+        flush_traces()
+        return result
 
     @mcp.tool()
     def mcp_find_cash_secured_put(
@@ -267,10 +319,22 @@ def web():
         max_days: int = 45,
     ) -> dict:
         """Find optimal cash-secured put candidates."""
-        check_email_authorized()
-        return tools.find_cash_secured_put(
-            symbol, cash_available, min_premium, max_delta, min_days, max_days
+        user_email = check_email_authorized()
+        inputs = {
+            "symbol": symbol,
+            "cash_available": cash_available,
+            "min_premium": min_premium,
+            "max_delta": max_delta,
+            "min_days": min_days,
+            "max_days": max_days,
+        }
+        result = trace_tool("find_cash_secured_put", inputs, user_email)(
+            lambda: tools.find_cash_secured_put(
+                symbol, cash_available, min_premium, max_delta, min_days, max_days
+            )
         )
+        flush_traces()
+        return result
 
     # Create the HTTP app with OAuth
     return mcp.http_app(
