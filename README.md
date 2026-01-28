@@ -112,21 +112,40 @@ Returns top 10 candidates with:
 | 📉 Large Losses | Positions down >10% |
 | ⚠️ Naked Options | Short options without underlying |
 
-## Claude Desktop Setup
+## Setup Options
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+### Option 1: Cloud (Modal) - Recommended for Mobile
+
+The MCP server is deployed to Modal with Google OAuth authentication, enabling access from Claude iOS/Android and Claude Desktop.
+
+**Claude Desktop (remote):**
+```json
+{
+  "mcpServers": {
+    "portfolio-mcp-remote": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://chaosisnotrandomitisrhythmic--portfolio-mcp-web.modal.run/mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+**Claude iOS/Android:**
+1. Open Claude app → Settings → Integrations
+2. Add connector URL: `https://chaosisnotrandomitisrhythmic--portfolio-mcp-web.modal.run/mcp`
+3. Login with authorized Google account when prompted
+
+### Option 2: Local (stdio)
+
+For local-only usage without cloud deployment:
 
 ```json
 {
   "mcpServers": {
     "portfolio-mcp": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/portfolio-mcp",
-        "run",
-        "portfolio-mcp"
-      ],
+      "args": ["--directory", "/path/to/portfolio-mcp", "run", "portfolio-mcp"],
       "env": {}
     }
   }
@@ -135,7 +154,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Replace `/path/to/portfolio-mcp` with your actual installation path.
 
-See [CLAUDE_PROJECT.md](CLAUDE_PROJECT.md) for complete project setup instructions including custom instructions for optimal Claude behavior.
+See [CLAUDE_PROJECT.md](CLAUDE_PROJECT.md) for complete project setup instructions.
 
 ## Data Format
 
@@ -145,11 +164,53 @@ Supports Charles Schwab "Individual Positions" CSV exports with columns:
 
 Handles Schwab's Excel-escaped format (`="$186.23"`).
 
+## Cloud Deployment (Modal)
+
+The server can be deployed to [Modal](https://modal.com) for remote access with Google OAuth authentication.
+
+### Prerequisites
+
+```bash
+pip install modal
+modal token new
+```
+
+### Modal Secrets Required
+
+```bash
+# Polygon API key
+modal secret create polygon-api-key POLYGON_API_KEY=your_key
+
+# Google OAuth (from Google Cloud Console)
+modal secret create google-oauth \
+  GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com \
+  GOOGLE_CLIENT_SECRET=GOCSPX-your_secret
+
+# JWT signing key (generate with: python -c "import secrets; print(secrets.token_urlsafe(32))")
+modal secret create mcp-jwt-key JWT_SIGNING_KEY=your_random_key
+
+# Allowed emails (comma-separated)
+modal secret create mcp-allowed-emails ALLOWED_EMAILS=you@example.com
+```
+
+### Deploy
+
+```bash
+modal deploy modal_app.py
+```
+
+### Architecture
+
+- **OAuth**: Google OAuth via FastMCP's GoogleProvider
+- **Storage**: Modal Dict for persistent client registrations
+- **Security**: Email allowlist restricts access to authorized users only
+
 ## Tech Stack
 
 - **Python 3.11+** with [uv](https://github.com/astral-sh/uv) for dependency management
 - **[FastMCP](https://github.com/jlowin/fastmcp)** for MCP server implementation
 - **[Polygon.io](https://polygon.io)** for market data with ORATS Greeks
+- **[Modal](https://modal.com)** for serverless cloud deployment
 - **Pandas** for CSV parsing and data manipulation
 
 ## Architecture

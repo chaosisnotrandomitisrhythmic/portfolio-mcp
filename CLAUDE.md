@@ -17,6 +17,7 @@ This file provides guidance to Claude Code when working with this repository.
 - **Python 3.11+** with `uv` for dependency management
 - **FastMCP** for MCP server implementation
 - **Polygon.io** for market data (stocks + options with Greeks)
+- **Modal** for serverless cloud deployment with Google OAuth
 - **Pandas** for CSV parsing and data manipulation
 
 ## Quick Commands
@@ -41,8 +42,9 @@ uv run python -c "from src.portfolio_mcp.tools import get_stock_quote; print(get
 portfolio-mcp/
 ├── src/portfolio_mcp/
 │   ├── __init__.py      # Package init, exports run_server
-│   ├── server.py        # FastMCP server definition and tool wrappers
+│   ├── server.py        # FastMCP server definition and tool wrappers (local)
 │   └── tools.py         # Core business logic (analysis, Polygon API)
+├── modal_app.py          # Modal cloud deployment with Google OAuth
 ├── docs/
 │   └── options_data_api_research.md  # API provider comparison
 ├── .env                  # API keys (gitignored)
@@ -126,6 +128,53 @@ The MCP server is configured in `~/Library/Application Support/Claude/claude_des
 ```
 
 Replace `/path/to/portfolio-mcp` with the actual path where you cloned this repository.
+
+## Cloud Deployment (Modal)
+
+The server is deployed to Modal for mobile/remote access with Google OAuth.
+
+### Deployment URL
+```
+https://chaosisnotrandomitisrhythmic--portfolio-mcp-web.modal.run/mcp
+```
+
+### Key Files
+- `modal_app.py` - Modal deployment configuration with OAuth
+
+### Modal Secrets
+- `polygon-api-key` - Polygon.io API key
+- `google-oauth` - Google OAuth client ID and secret
+- `mcp-jwt-key` - JWT signing key for token validation
+- `mcp-allowed-emails` - Comma-separated list of authorized emails
+
+### Modal Resources
+- `portfolio-mcp-oauth` (Dict) - Persistent OAuth client storage
+
+### Deploy Commands
+```bash
+# Deploy to Modal
+modal deploy modal_app.py
+
+# Check logs
+modal app logs portfolio-mcp
+
+# Test tools directly (bypasses OAuth)
+modal run modal_app.py::test_tools
+```
+
+### Authentication Flow
+1. User connects via Claude Desktop/iOS with connector URL
+2. Server redirects to Google OAuth
+3. User authenticates with Google
+4. Server validates email against allowlist
+5. If authorized, user can access tools
+
+### Adding Authorized Users
+```bash
+modal secret create mcp-allowed-emails --force \
+  ALLOWED_EMAILS=user1@example.com,user2@example.com
+modal deploy modal_app.py
+```
 
 ## Common Tasks
 
