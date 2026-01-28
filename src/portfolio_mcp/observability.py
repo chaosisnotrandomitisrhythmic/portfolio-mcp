@@ -1,8 +1,7 @@
 """Langfuse observability for MCP tool calls.
 
-This module provides tracing for MCP tool invocations using Langfuse.
-When credentials are set, all tool calls are traced with their inputs,
-outputs, duration, user, and any errors.
+This module provides OPTIONAL tracing for MCP tool invocations.
+Tracing failures are silently ignored to prevent breaking the MCP server.
 
 Usage:
     from portfolio_mcp.observability import init_langfuse, trace_tool, flush_traces
@@ -10,12 +9,12 @@ Usage:
     # At startup
     init_langfuse()
 
-    # Wrap tool calls
+    # Wrap tool calls (fails gracefully if Langfuse not working)
     result = trace_tool("get_stock_quote", {"symbol": "AAPL"}, user_email)(
         lambda: tools.get_stock_quote("AAPL")
     )
 
-    # At end of request (important for serverless!)
+    # At end of request
     flush_traces()
 """
 
@@ -25,19 +24,16 @@ from typing import Any, Callable
 
 # Global Langfuse client
 _langfuse = None
+_enabled = False
 
 
 def init_langfuse() -> bool:
     """Initialize Langfuse tracing for MCP tool calls.
 
     Call once at server startup. Returns True if enabled, False otherwise.
-
-    Environment variables:
-        LANGFUSE_SECRET_KEY: Secret key (required to enable)
-        LANGFUSE_PUBLIC_KEY: Public key (required to enable)
-        LANGFUSE_HOST: API URL (default: https://cloud.langfuse.com)
+    Failures are caught and logged - never raises exceptions.
     """
-    global _langfuse
+    global _langfuse, _enabled
 
     secret = os.environ.get("LANGFUSE_SECRET_KEY", "")
     public = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
@@ -58,18 +54,18 @@ def init_langfuse() -> bool:
 
         # Verify auth works
         if not _langfuse.auth_check():
-            print("⚠ Langfuse authentication failed - check your API keys")
+            print("Langfuse auth failed - tracing disabled")
             _langfuse = None
             return False
 
-        print(f"✓ Langfuse tracing enabled ({host})")
+        _enabled = True
+        print(f"Langfuse tracing enabled ({host})")
         return True
 
-    except ImportError as e:
-        print(f"⚠ Langfuse not installed: {e}")
-        return False
     except Exception as e:
-        print(f"⚠ Langfuse initialization failed: {e}")
+        print(f"Langfuse init failed: {e} - tracing disabled")
+        _langfuse = None
+        _enabled = False
         return False
 
 
@@ -80,82 +76,110 @@ def trace_tool(
 ) -> Callable[[Callable[[], Any]], Any]:
     """Trace a tool call with Langfuse.
 
+    IMPORTANT: This function NEVER raises exceptions.
+    If tracing fails, it silently continues without tracing.
+
     Usage:
         result = trace_tool("get_stock_quote", {"symbol": "AAPL"}, user_email)(
             lambda: tools.get_stock_quote("AAPL")
         )
-
-    Args:
-        tool_name: Name of the tool being called
-        inputs: Dictionary of input arguments
-        user_id: Optional user identifier (e.g., email)
-
-    Returns:
-        A callable that takes a function and executes it with tracing
     """
 
     def execute(func: Callable[[], Any]) -> Any:
-        if _langfuse is None:
+        # If Langfuse not enabled, just run the function
+        if not _enabled or _langfuse is None:
             return func()
 
-        # Create a trace for this tool call
+        # Try to trace, but NEVER let tracing errors break the tool
+        try:
+            return _traced_execute(func, tool_name, inputs, user_id)
+        except Exception as e:
+            # Tracing failed - log and continue without tracing
+            print(f"Langfuse trace error (ignored): {e}")
+            return func()
+
+    return execute
+
+
+def _traced_execute(
+    func: Callable[[], Any],
+    tool_name: str,
+    inputs: dict[str, Any],
+    user_id: str | None,
+) -> Any:
+    """Internal traced execution - may raise exceptions."""
+    # Try different Langfuse API versions
+    trace = None
+    span = None
+
+    # Try to create a trace (API varies by version)
+    if hasattr(_langfuse, 'trace'):
         trace = _langfuse.trace(
             name=f"mcp-tool-{tool_name}",
             user_id=user_id,
             metadata={"tool": tool_name},
         )
-
-        # Create a span for the actual execution
-        span = trace.span(
-            name=tool_name,
-            input=inputs,
+    elif hasattr(_langfuse, 'create_trace'):
+        trace = _langfuse.create_trace(
+            name=f"mcp-tool-{tool_name}",
+            user_id=user_id,
+            metadata={"tool": tool_name},
         )
+    else:
+        # No known trace method - just run function
+        return func()
 
-        start_time = time.time()
-        error = None
-        result = None
+    # Create span if trace was created
+    if trace and hasattr(trace, 'span'):
+        span = trace.span(name=tool_name, input=inputs)
 
-        try:
-            result = func()
-            return result
-        except Exception as e:
-            error = e
-            raise
-        finally:
-            duration_ms = (time.time() - start_time) * 1000
+    start_time = time.time()
+    error = None
+    result = None
 
-            # End the span with result or error
-            if error:
-                span.end(
-                    output={"error": str(error)},
-                    level="ERROR",
-                    status_message=str(error),
-                )
-            else:
-                span.end(output=result)
+    try:
+        result = func()
+        return result
+    except Exception as e:
+        error = e
+        raise
+    finally:
+        duration_ms = (time.time() - start_time) * 1000
 
-            # Update trace with duration
-            trace.update(
-                metadata={
+        # End span if it exists
+        if span:
+            try:
+                if error:
+                    span.end(output={"error": str(error)}, level="ERROR")
+                else:
+                    span.end(output=result)
+            except Exception:
+                pass  # Ignore span errors
+
+        # Update trace if it exists
+        if trace and hasattr(trace, 'update'):
+            try:
+                trace.update(metadata={
                     "tool": tool_name,
                     "duration_ms": round(duration_ms, 2),
                     "success": error is None,
-                }
-            )
-
-    return execute
+                })
+            except Exception:
+                pass  # Ignore trace errors
 
 
 def flush_traces() -> None:
     """Flush all pending traces to Langfuse.
 
-    IMPORTANT: Call this at the end of each request in serverless environments!
-    Otherwise traces may be lost when the container is recycled.
+    Safe to call even if Langfuse is not enabled - does nothing.
     """
     if _langfuse is not None:
-        _langfuse.flush()
+        try:
+            _langfuse.flush()
+        except Exception:
+            pass  # Ignore flush errors
 
 
 def is_enabled() -> bool:
     """Check if Langfuse tracing is currently enabled."""
-    return _langfuse is not None
+    return _enabled
