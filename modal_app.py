@@ -27,16 +27,25 @@ Prerequisites:
 """
 
 import modal
+from pathlib import Path
 
 # Define the Modal app
 app = modal.App("portfolio-mcp")
 
+# Get the local source directory
+local_src = Path(__file__).parent / "src"
+
 # Build the container image with all dependencies
-image = modal.Image.debian_slim(python_version="3.11").pip_install(
-    "fastmcp>=2.10.6",
-    "fastapi>=0.115.0",
-    "pandas>=2.0.0",
-    "polygon-api-client>=1.14.0",
+# Mount local source code for development
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install(
+        "fastmcp>=2.10.6",
+        "fastapi>=0.115.0",
+        "pandas>=2.0.0",
+        "polygon-api-client>=1.14.0",
+    )
+    .add_local_dir(local_src, remote_path="/root/src")
 )
 
 
@@ -51,10 +60,14 @@ def web():
     Returns a FastAPI app with the MCP server mounted at /mcp/.
     Uses streamable-http transport with stateless_http=True for serverless.
     """
+    import sys
+    # Add source path for imports
+    sys.path.insert(0, "/root/src")
+    
     from fastapi import FastAPI
     
     # Import the MCP server instance
-    from src.portfolio_mcp.server import mcp
+    from portfolio_mcp.server import mcp
     
     # Create the MCP HTTP app with stateless mode for serverless
     mcp_app = mcp.http_app(
@@ -74,7 +87,7 @@ def web():
 
 
 # Optional: Test function to verify deployment
-@app.function(image=image)
+@app.function(image=image, secrets=[modal.Secret.from_name("polygon-api-key")])
 async def test_tools():
     """Test the MCP server tools after deployment.
     
