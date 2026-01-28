@@ -1,10 +1,13 @@
 """FastMCP server for portfolio risk analysis.
 
-Exposes portfolio monitoring tools for use with Claude Desktop.
+Exposes portfolio monitoring tools for use with Claude Desktop and remote MCP clients.
+Supports both stdio (local) and HTTP (cloud) transports.
+
 Upload your Schwab CSV through the UI, then use the analyze tool.
 """
 
 import json
+import os
 
 from fastmcp import FastMCP
 
@@ -242,8 +245,28 @@ def mcp_find_cash_secured_put(
 
 
 def run_server() -> None:
-    """Entry point for the MCP server."""
-    mcp.run()
+    """Entry point for the MCP server.
+    
+    Supports multiple transports via MCP_TRANSPORT env var:
+    - "stdio" (default): Local stdio transport for Claude Desktop
+    - "http": HTTP transport for cloud deployment (use with Modal/ASGI)
+    
+    For HTTP transport, prefer using modal_app.py which provides
+    proper ASGI setup with stateless_http=True for serverless.
+    """
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    
+    if transport == "stdio":
+        mcp.run()
+    elif transport == "http":
+        # HTTP transport - run with default settings
+        # For production, use modal_app.py with proper ASGI setup
+        mcp.run(transport="http", host="0.0.0.0", port=8000)
+    else:
+        raise ValueError(
+            f"Unknown transport: {transport}. "
+            "Use 'stdio' (default) or 'http'."
+        )
 
 
 if __name__ == "__main__":
