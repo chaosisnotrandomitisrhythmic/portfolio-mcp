@@ -18,7 +18,9 @@ from .tools import (
     generate_research_prompts,
     get_market_time,
     get_option_chain,
+    get_portfolio_context,
     get_stock_quote,
+    update_portfolio_context,
 )
 
 mcp = FastMCP(
@@ -35,11 +37,19 @@ mcp = FastMCP(
     **Daily Workflow:**
 
     1. **ALWAYS call get_market_time first** - establishes NYC timestamp and market session
-    2. Upload your Schwab CSV through Claude Desktop's file upload
-    3. Call analyze_portfolio for alerts and summary
-    4. Call generate_research_prompts for deep-dive topics
-    5. Enable Research mode for web search on suggested prompts
-    6. Click "Add to Project" on research output to accumulate knowledge
+    2. **Optionally call get_portfolio_context** - load strategy memory from Obsidian
+    3. Upload your Schwab CSV through Claude Desktop's file upload
+    4. Call analyze_portfolio for alerts and summary
+    5. Call generate_research_prompts for deep-dive topics
+    6. Enable Research mode for web search on suggested prompts
+    7. **Call update_portfolio_context** to save learnings back to Obsidian
+
+    **Portfolio Context Memory:**
+    - get_portfolio_context: Load strategy, thesis, lessons from Obsidian
+    - update_portfolio_context: Save new learnings and updates to Obsidian
+    
+    The context document persists across sessions, replacing the need for
+    ever-growing Claude Desktop project documents.
 
     **Alert types (priority order):**
     - 🚨 ITM short options (highest risk)
@@ -240,6 +250,67 @@ def mcp_find_cash_secured_put(
         min_dte=min_dte,
         max_dte=max_dte,
         min_premium_pct=min_premium_pct,
+    )
+    return json.dumps(result, indent=2)
+
+
+# =============================================================================
+# Portfolio Context Memory Tools
+# =============================================================================
+
+
+@mcp.tool(annotations={"title": "Get Portfolio Context", "readOnlyHint": True})
+def mcp_get_portfolio_context(section: str = None) -> str:
+    """Read investment strategy context from Obsidian memory document.
+
+    Call this BEFORE portfolio analysis to load existing strategy, holdings
+    thesis, decision frameworks, and accumulated learnings. The context
+    helps maintain consistency across sessions.
+
+    Args:
+        section: Optional section to retrieve. If omitted, returns full document.
+                 Valid sections:
+                 - "Strategy Overview" - Core investment approach
+                 - "Current Holdings & Thesis" - Position details and rationale
+                 - "Decision Framework" - Trading rules and triggers
+                 - "Risk Management" - Position limits and cash rules
+                 - "Lessons Learned" - What's working and adjustments
+                 - "Operational Procedures" - Workflows and guidelines
+                 - "Open Questions" - Items to research
+
+    Returns:
+        JSON with document content, metadata, and available sections
+    """
+    result = get_portfolio_context(section=section)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool(annotations={"title": "Update Portfolio Context"})
+def mcp_update_portfolio_context(
+    section: str,
+    content: str,
+    mode: str = "replace",
+) -> str:
+    """Update a section of the portfolio context document in Obsidian.
+
+    Use this to save new learnings, update holdings thesis, add decision
+    outcomes, or record lessons learned. Updates persist across sessions.
+
+    Args:
+        section: Section name to update (e.g., "Lessons Learned", "Open Questions")
+        content: New content for the section (markdown supported)
+        mode: How to apply the update:
+              - "replace" (default): Replace section content entirely
+              - "append": Add content to end of section
+              - "prepend": Add content to beginning of section
+
+    Returns:
+        JSON with updated section content, version, and timestamp
+    """
+    result = update_portfolio_context(
+        section=section,
+        content=content,
+        mode=mode,
     )
     return json.dumps(result, indent=2)
 

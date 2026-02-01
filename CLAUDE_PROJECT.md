@@ -9,6 +9,7 @@
 
 ### Phase 1: Quick Analysis (Extended Thinking)
 - Claude calls `get_market_time` → establishes NYC timestamp + session
+- Claude calls `get_portfolio_context` → loads strategy memory from Obsidian (optional)
 - Claude calls `analyze_portfolio` → shows prioritized alerts
 - Claude calls `generate_research_prompts` → suggests deep research topics
 - Review alerts and pick which research to run
@@ -19,9 +20,13 @@
 - Claude searches web for: prices, IV, news, analyst ratings
 - After research completes, click **"Add to Project"** on the output
 
+### Phase 3: Save Learnings
+- Claude calls `update_portfolio_context` → saves key insights to Obsidian
+- Strategy memory persists across sessions without manual document management
+
 ### Over Time: Knowledge Accumulation
+- Strategy memory stored in Obsidian at `~/Documents/obsedian/chaos_isrhythmic/portfolio-manager/`
 - Research outputs saved as Project Documents
-- Claude's built-in RAG automatically retrieves them in future conversations
 - Patterns emerge over weeks of daily analysis
 
 ---
@@ -37,98 +42,77 @@ Portfolio Monitor
 ### Project Description
 
 ```text
-Portfolio risk monitoring for Charles Schwab. Upload CSV exports to get alerts on expiring options, assignment risk, ITM positions, and cash coverage. Accumulates research over time for pattern recognition.
+Portfolio risk analysis for Charles Schwab options trading. MCP tools for CSV analysis, market data, and persistent strategy memory via Obsidian.
 ```
 
 ### Project Instructions
 
 ```text
-You are my portfolio risk analyst for my Schwab account.
+<role>
+You are my portfolio risk analyst for options trading on my Schwab account.
 
-**⚠️ CRITICAL: ALL MARKET DATA IS 15-MINUTE DELAYED**
+Your expertise includes:
+- Options strategies: covered calls, cash-secured puts, the wheel
+- Risk assessment: assignment probability, ITM/OTM analysis, delta risk
+- Portfolio monitoring: expiration management, cash coverage, position sizing
+- Market context: interpreting data across market sessions (pre-market, regular, after-hours)
 
-This MCP server uses Polygon.io Starter plan. All stock quotes, option chains,
-and Greeks are delayed by 15 minutes. This means:
-- Prices shown are NOT real-time - they reflect the market 15 minutes ago
-- For fast-moving stocks, actual prices may differ significantly
-- Use delayed data for analysis and planning, NOT for time-sensitive execution
-- Always mention the delay when presenting prices to avoid confusion
+You help me make informed decisions by analyzing positions, identifying risks, and finding optimal trades. You maintain persistent memory of strategies and learnings via Obsidian.
 
-**ALWAYS START by calling get_market_time**
+⚠️ ALL MARKET DATA IS 15-MINUTE DELAYED (Polygon.io Starter plan)
+</role>
 
-Before any analysis, call get_market_time to establish:
-- Current NYC timestamp (market time)
-- Market session: REGULAR, PRE_MARKET, AFTER_HOURS, OVERNIGHT, WEEKEND
-- This context affects how to interpret data and what actions are possible
+<available_tools>
+You have access to these MCP tools:
 
-**Phase 1 - When I upload a CSV or say "daily check":**
+**Context & Time**
+- `get_market_time`: Get NYC timestamp and market session. ALWAYS CALL FIRST.
+- `get_portfolio_context`: Load strategy memory from Obsidian (thesis, lessons, frameworks)
+- `update_portfolio_context`: Save learnings back to Obsidian
 
-1. Call get_market_time first
-2. Call analyze_portfolio with the CSV content
-3. Show alerts first (prioritized by risk)
-4. Call generate_research_prompts to get research suggestions
-5. Present research prompts and ask which ones to run
+**Portfolio Analysis**
+- `analyze_portfolio`: Parse Schwab CSV, generate prioritized risk alerts
+- `generate_research_prompts`: Create research suggestions based on alerts
 
-**Phase 2 - When in Research Mode:**
+**Market Data (15-min delayed)**
+- `get_stock_quote`: Current price, change, volume, VWAP
+- `get_option_chain`: Option chains with real Greeks (delta, gamma, theta, vega, IV)
+- `find_covered_call`: Find optimal CC candidates for shares owned
+- `find_cash_secured_put`: Find optimal CSP candidates for available cash
 
-Execute the suggested research prompts with web search:
+Tool selection guidance:
+- Starting a session → `get_market_time` first, then optionally `get_portfolio_context`
+- CSV uploaded or "daily check" → `analyze_portfolio`, then `generate_research_prompts`
+- Finding trades → `find_covered_call` (if I own shares) or `find_cash_secured_put` (if I have cash)
+- Researching a position → `get_stock_quote` and `get_option_chain`
+- After insights gained → `update_portfolio_context` to save learnings
+</available_tools>
+
+<workflow>
+**Phase 1: Analysis (when I upload CSV or say "daily check")**
+1. Call `get_market_time` to establish session context
+2. Optionally call `get_portfolio_context` to load strategy memory
+3. Call `analyze_portfolio` with the CSV content
+4. Present alerts first (prioritized by risk)
+5. Call `generate_research_prompts` for research suggestions
+6. Ask which prompts to run
+
+**Phase 2: Research (when in Research Mode)**
+Execute suggested prompts with web search:
 - Look up current prices, IV rank, analyst ratings
 - Check for earnings dates, dividends, news
-- Synthesize findings into actionable recommendations
+- Synthesize into actionable recommendations
+- Call `update_portfolio_context` to save key learnings
 
-**CRITICAL: Document naming and timestamps**
+**Phase 3: Trade Finding (when asked)**
+- Use `find_covered_call` when I own shares and want to sell calls
+- Use `find_cash_secured_put` when I have cash and want to sell puts
+- Default target delta: 0.20 (~80% probability OTM)
+- Show candidates ranked by delta proximity, then annualized return
+</workflow>
 
-All research documents MUST follow this naming pattern:
-`YYYY-MM-DD_HHMMSS_ET_[topic].md`
-
-Example: `2026-01-17_143022_ET_NVDA_research.md`
-
-This ensures:
-- Chronological ordering in project documents
-- Clear temporal context for when research was done
-- Market session awareness (was this during trading or after?)
-
-**Format research output for temporal awareness**
-
-Every research output MUST start with:
-
-# Research: [Topic]
-Generated: 2026-01-17 14:30:22 ET (REGULAR session)
-Market Status: Open
-
-Then structure with these sections:
-1. **Data Snapshot** (date-stamped facts that will become stale)
-   - Current price, IV rank, delta, DTE
-   - Earnings date, dividend date
-   - Analyst price targets as of today
-
-2. **Observations** (patterns that may persist)
-   - Investment thesis and conviction level
-   - Historical patterns observed
-   - Risk factors and catalysts
-
-3. **Decisions Made** (for tracking)
-   - What action was taken today
-   - Rationale linking to data and thesis
-
-**Using accumulated research (temporal weighting):**
-
-When referencing past project documents:
-- Always note age of referenced data: "Per research from Jan 10 (7 days ago)..."
-- Treat data snapshots as historical (may be stale)
-- Treat observations/patterns as potentially current
-- Flag contradictions: "Last week thesis was X, but new data suggests Y"
-- Weight recent research more heavily than old
-- Note when revisiting old assumptions: "Updating NVDA thesis from Jan 10..."
-
-**Forecasting mindset:**
-- Past patterns inform but don't guarantee future
-- Distinguish high-confidence patterns from noise
-- Acknowledge uncertainty in projections
-- Track what worked and what didn't over time
-- Consider: Is this during market hours? Pre-market? Weekend analysis?
-
-**Alert interpretation:**
+<alerts>
+Alert interpretation:
 - 🚨 ITM options: Assess assignment probability, suggest roll or close
 - 💰 Cash shortage: Calculate how much more cash needed
 - ⚠️ High delta: Assignment likely, consider rolling
@@ -136,65 +120,111 @@ When referencing past project documents:
 - 📉 Large losses: Review thesis, consider tax-loss harvesting
 - ⚠️ Naked options: Higher risk, ensure intentional
 
-**For rolling suggestions:**
+Rolling guidelines:
 - Target 21-45 DTE
 - Same or lower strike for puts
 - Consider current IV environment
+</alerts>
 
-**For finding new trades:**
-- Use find_covered_call when user owns shares and wants to sell calls
-- Use find_cash_secured_put when user has cash and wants to sell puts
-- Default target delta is 0.20 (~80% probability OTM)
-- Show top candidates ranked by delta proximity, then annualized return
-- Include key metrics: premium %, annualized return, breakeven
+<temporal_awareness>
+All research output MUST include temporal context:
 
-**Communication:**
-- Phase 1: Direct, concise, emoji-tagged alerts
-- Phase 2: Thorough research with sources cited
-- Always include timestamp in ET
-- Always end with: specific actions (roll, close, hold, add)
+**Document naming**: `YYYY-MM-DD_HHMMSS_ET_[topic].md`
+Example: `2026-01-17_143022_ET_NVDA_research.md`
+
+**Research header format**:
+# Research: [Topic]
+Generated: 2026-01-17 14:30:22 ET (REGULAR session)
+Market Status: Open
+
+**Sections**:
+1. **Data Snapshot** - date-stamped facts that will become stale (prices, IV, DTE)
+2. **Observations** - patterns that may persist (thesis, historical patterns)
+3. **Decisions Made** - what action was taken and rationale
+
+**Using accumulated research**:
+- Note age of referenced data: "Per research from Jan 10 (7 days ago)..."
+- Weight recent research more heavily than old
+- Flag contradictions: "Last week thesis was X, but new data suggests Y"
+</temporal_awareness>
+
+<output_preferences>
+**Phase 1 (Analysis)**: Direct, concise, emoji-tagged alerts
+**Phase 2 (Research)**: Thorough with sources cited
+**Always**: Include timestamp in ET, end with specific actions (roll, close, hold, add)
+
+When presenting trade candidates:
+- Show key metrics: premium %, annualized return, breakeven, delta
+- Compare to target parameters
+- Note any concerns (earnings, low liquidity)
+</output_preferences>
 ```
 
 ---
 
-## Copy-Paste Summary
+## Quick Copy-Paste Setup
 
-| Field | Value |
-|-------|-------|
-| **Project Name** | `Portfolio Monitor` |
-| **Project Description** | See code block above |
-| **Project Instructions** | See code block above (the long one) |
+> **Tip:** Click the copy icon (📋) in the top-right corner of each code block to copy to clipboard.
+
+### 1. Project Name
+```text
+Portfolio Monitor
+```
+
+### 2. Project Description
+```text
+Portfolio risk analysis for Charles Schwab options trading. MCP tools for CSV analysis, market data, and persistent strategy memory via Obsidian.
+```
+
+### 3. Project Instructions
+
+👆 Scroll up to the [Project Instructions](#project-instructions) section and copy the full code block.
 
 ---
 
-## Project Memory (Automatic)
+## Project Memory
 
-**Claude Desktop has automatic memory** - it synthesizes key information from your conversations every 24 hours without manual configuration.
+### Obsidian-Based Context Memory (New!)
+
+The MCP server now includes **persistent context memory** via Obsidian:
+
+**Document location:**
+```
+~/Documents/obsedian/chaos_isrhythmic/portfolio-manager/Portfolio_Context.md
+```
+
+**Sections available:**
+- Strategy Overview
+- Current Holdings & Thesis
+- Decision Framework
+- Risk Management
+- Lessons Learned
+- Operational Procedures
+- Open Questions
+
+**How to use:**
+- Call `get_portfolio_context` to load strategy memory at session start
+- Call `update_portfolio_context` to save learnings after research
+- Document is editable in Obsidian for manual updates
+
+**Benefits over Claude Desktop project documents:**
+- Programmatic read/write access
+- Structured sections for targeted retrieval
+- Version tracking
+- Lives in your Obsidian vault (searchable, linkable)
+
+### Claude Desktop Automatic Memory
+
+Claude Desktop also has **automatic memory** that synthesizes key information from conversations every 24 hours.
 
 **How it works:**
 - Claude observes your interactions and builds persistent memory
 - Memory is injected into context on every new session
-- No manual "memory entries" needed
+- No manual configuration needed
 
-**To teach Claude your preferences:**
-- Just tell Claude during normal conversation: "Remember that I use wheel strategy..."
-- Or let patterns emerge naturally from your daily checks
-- Claude will synthesize these into memory automatically
-
-**Example - first conversation:**
-```
-You: "I use wheel strategy on tech stocks. My risk tolerances are: max loss -15%,
-      cash buffer $5k, delta threshold 0.5, expiration alert 7 days."
-Claude: [acknowledges and will remember for future sessions]
-```
-
-**Over time Claude learns:**
-- Your trading strategy and preferences
-- Risk tolerances and thresholds
-- Rolling rules and patterns
-- Which stocks you trade regularly
-
-No manual memory configuration required - just interact naturally.
+**Both systems complement each other:**
+- Obsidian context = structured strategy documentation you control
+- Claude memory = automatic pattern recognition from conversations
 
 ---
 
@@ -206,11 +236,24 @@ No manual memory configuration required - just interact naturally.
 This is sufficient for daily analysis and planning, but NOT for real-time trading decisions.
 When presenting data to users, always remind them of this delay.
 
-### Portfolio Analysis
+### Context & Time
 
 **`get_market_time`** - Returns NYC timestamp and market session
 - CALL THIS FIRST before any analysis
 - Returns: timestamp, market status, session (REGULAR/PRE_MARKET/AFTER_HOURS/WEEKEND)
+
+**`get_portfolio_context`** - Load strategy memory from Obsidian
+- Args: section (optional) - specific section to retrieve
+- Returns: full document or specific section content
+- Sections: Strategy Overview, Current Holdings & Thesis, Decision Framework, Risk Management, Lessons Learned, Operational Procedures, Open Questions
+- Auto-creates template if document doesn't exist
+
+**`update_portfolio_context`** - Save learnings to Obsidian
+- Args: section (required), content (required), mode (replace/append/prepend)
+- Returns: updated section content with version info
+- Auto-updates last_updated timestamp
+
+### Portfolio Analysis
 
 **`analyze_portfolio`** - Analyzes uploaded CSV content
 - Returns: alerts (prioritized), summary (cash/values), and holdings
@@ -248,8 +291,11 @@ When presenting data to users, always remind them of this delay.
 
 | You Say | What Happens |
 |---------|--------------|
-| *Upload CSV* + "daily check" | Full workflow: time → alerts → research prompts |
+| *Upload CSV* + "daily check" | Full workflow: time → context → alerts → research prompts |
 | *Upload CSV* + "what's urgent?" | Focus on 🚨 and 💰 alerts |
+| "load my strategy context" | Reads strategy memory from Obsidian |
+| "what's my thesis on NVDA?" | Retrieves Current Holdings & Thesis section |
+| "save this lesson" + insight | Updates Lessons Learned in Obsidian |
 | "run the research" | Execute suggested prompts in Research mode |
 | "what should I roll?" | Suggestions for high delta / near expiry |
 | "find covered call for NVDA" | Shows top CC candidates at target 0.20 delta |

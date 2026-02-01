@@ -1017,3 +1017,400 @@ def find_cash_secured_put(
         "target_delta": target_delta,
         "candidates": candidates[:10],
     }
+
+
+# =============================================================================
+# Portfolio Context Memory (Obsidian Integration)
+# =============================================================================
+
+CONTEXT_DOC_PATH = "/Users/chaosisnotrandomitisrythmic/Documents/obsedian/chaos_isrhythmic/portfolio-manager/Portfolio_Context.md"
+
+# Valid section names for the context document
+VALID_SECTIONS = [
+    "Strategy Overview",
+    "Current Holdings & Thesis",
+    "Decision Framework",
+    "Risk Management",
+    "Lessons Learned",
+    "Operational Procedures",
+    "Open Questions",
+]
+
+# Template for new context document
+CONTEXT_TEMPLATE = '''---
+type: portfolio-context
+created: {created_date}
+last_updated: {last_updated}
+version: 1
+---
+
+# Portfolio Context
+
+> **Purpose:** This document serves as the persistent memory for investment research, strategies, and learnings. It is read and updated by the Portfolio MCP tools.
+
+---
+
+## Strategy Overview
+
+*Document your core investment strategy, approach, and philosophy here.*
+
+---
+
+## Current Holdings & Thesis
+
+*Document each position with entry price, thesis, and strategy.*
+
+---
+
+## Decision Framework
+
+*Document triggers, rules, and decision criteria for trades.*
+
+---
+
+## Risk Management
+
+*Document position limits, cash requirements, and risk rules.*
+
+---
+
+## Lessons Learned
+
+*Document what's working, what needed adjustment, and patterns observed.*
+
+---
+
+## Operational Procedures
+
+*Document daily workflows, alert handling, and rolling guidelines.*
+
+---
+
+## Open Questions
+
+*Document current research questions and items to investigate.*
+
+---
+
+*Last updated: {last_updated}*
+'''
+
+
+def _ensure_context_doc_exists() -> str:
+    """Ensure the context document exists, creating template if needed.
+    
+    Returns:
+        Path to the context document
+    """
+    import os
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    # Ensure directory exists
+    doc_dir = os.path.dirname(CONTEXT_DOC_PATH)
+    if not os.path.exists(doc_dir):
+        os.makedirs(doc_dir, exist_ok=True)
+    
+    # Create template if document doesn't exist
+    if not os.path.exists(CONTEXT_DOC_PATH):
+        nyc = ZoneInfo("America/New_York")
+        now = datetime.now(nyc)
+        date_str = now.strftime("%Y-%m-%d")
+        
+        content = CONTEXT_TEMPLATE.format(
+            created_date=date_str,
+            last_updated=date_str,
+        )
+        
+        with open(CONTEXT_DOC_PATH, 'w', encoding='utf-8') as f:
+            f.write(content)
+    
+    return CONTEXT_DOC_PATH
+
+
+def _parse_sections(content: str) -> dict[str, str]:
+    """Parse markdown content into sections by ## headers.
+    
+    Returns:
+        Dict mapping section names to their content
+    """
+    sections = {}
+    current_section = None
+    current_content = []
+    
+    for line in content.split('\n'):
+        # Check for section header (## level)
+        if line.startswith('## '):
+            # Save previous section
+            if current_section:
+                sections[current_section] = '\n'.join(current_content).strip()
+            
+            # Start new section
+            current_section = line[3:].strip()
+            current_content = []
+        elif current_section:
+            current_content.append(line)
+    
+    # Save last section
+    if current_section:
+        sections[current_section] = '\n'.join(current_content).strip()
+    
+    return sections
+
+
+def _extract_frontmatter(content: str) -> tuple[dict, str]:
+    """Extract YAML frontmatter from markdown content.
+    
+    Returns:
+        Tuple of (frontmatter_dict, remaining_content)
+    """
+    import yaml
+    
+    if not content.startswith('---'):
+        return {}, content
+    
+    # Find end of frontmatter
+    end_idx = content.find('---', 3)
+    if end_idx == -1:
+        return {}, content
+    
+    frontmatter_str = content[3:end_idx].strip()
+    remaining = content[end_idx + 3:].strip()
+    
+    try:
+        frontmatter = yaml.safe_load(frontmatter_str) or {}
+    except yaml.YAMLError:
+        frontmatter = {}
+    
+    return frontmatter, remaining
+
+
+def _update_frontmatter(content: str, updates: dict) -> str:
+    """Update frontmatter fields in markdown content.
+    
+    Args:
+        content: Full markdown content with frontmatter
+        updates: Dict of fields to update
+        
+    Returns:
+        Updated content
+    """
+    import yaml
+    
+    frontmatter, body = _extract_frontmatter(content)
+    frontmatter.update(updates)
+    
+    # Rebuild content
+    frontmatter_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
+    return f"---\n{frontmatter_str}---\n\n{body}"
+
+
+def get_portfolio_context(section: Optional[str] = None) -> dict:
+    """Read the portfolio context document from Obsidian.
+    
+    Call this to load existing strategy, holdings thesis, decision frameworks,
+    and accumulated learnings before performing portfolio analysis.
+    
+    Args:
+        section: Optional section name to retrieve. If None, returns full document.
+                 Valid sections: Strategy Overview, Current Holdings & Thesis,
+                 Decision Framework, Risk Management, Lessons Learned,
+                 Operational Procedures, Open Questions
+    
+    Returns:
+        Dict with document content, metadata, and available sections
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    # Ensure document exists
+    doc_path = _ensure_context_doc_exists()
+    
+    # Read document
+    with open(doc_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # Parse frontmatter and sections
+    frontmatter, body = _extract_frontmatter(content)
+    sections = _parse_sections(body)
+    
+    # Get current time for context
+    nyc = ZoneInfo("America/New_York")
+    now = datetime.now(nyc)
+    
+    # Convert date objects to strings (YAML may parse dates)
+    last_updated = frontmatter.get("last_updated")
+    if hasattr(last_updated, 'strftime'):
+        last_updated = last_updated.strftime("%Y-%m-%d")
+    elif last_updated:
+        last_updated = str(last_updated)
+    
+    result = {
+        "path": doc_path,
+        "last_updated": last_updated,
+        "version": frontmatter.get("version", 1),
+        "retrieved_at": now.strftime("%Y-%m-%d %H:%M:%S ET"),
+        "available_sections": list(sections.keys()),
+    }
+    
+    if section:
+        # Return specific section
+        if section not in sections:
+            # Try case-insensitive match
+            section_lower = section.lower()
+            for s in sections:
+                if s.lower() == section_lower:
+                    section = s
+                    break
+            else:
+                return {
+                    "error": f"Section '{section}' not found",
+                    "available_sections": list(sections.keys()),
+                }
+        
+        result["section"] = section
+        result["content"] = sections[section]
+    else:
+        # Return full document
+        result["full_content"] = content
+        result["sections"] = sections
+    
+    return result
+
+
+def update_portfolio_context(
+    section: str,
+    content: str,
+    mode: str = "replace",
+) -> dict:
+    """Update a section of the portfolio context document.
+    
+    Use this to save new learnings, update holdings thesis, add decision
+    outcomes, or record lessons learned. The document is stored in Obsidian
+    for persistence across sessions.
+    
+    Args:
+        section: Section name to update (e.g., "Lessons Learned", "Open Questions")
+        content: New content for the section
+        mode: How to apply the update:
+              - "replace" (default): Replace section content entirely
+              - "append": Add content to end of section
+              - "prepend": Add content to beginning of section
+    
+    Returns:
+        Dict with updated section content and metadata
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    # Validate mode
+    if mode not in ("replace", "append", "prepend"):
+        return {"error": f"Invalid mode '{mode}'. Use 'replace', 'append', or 'prepend'."}
+    
+    # Ensure document exists
+    doc_path = _ensure_context_doc_exists()
+    
+    # Read current document
+    with open(doc_path, 'r', encoding='utf-8') as f:
+        doc_content = f.read()
+    
+    # Parse sections
+    frontmatter, body = _extract_frontmatter(doc_content)
+    sections = _parse_sections(body)
+    
+    # Find section (case-insensitive)
+    target_section = None
+    section_lower = section.lower()
+    for s in sections:
+        if s.lower() == section_lower:
+            target_section = s
+            break
+    
+    if target_section is None:
+        # Check if it's a valid section name
+        for valid in VALID_SECTIONS:
+            if valid.lower() == section_lower:
+                target_section = valid
+                sections[target_section] = ""
+                break
+        else:
+            return {
+                "error": f"Section '{section}' not found and is not a valid section name",
+                "valid_sections": VALID_SECTIONS,
+            }
+    
+    # Apply update based on mode
+    old_content = sections.get(target_section, "")
+    
+    if mode == "replace":
+        new_section_content = content
+    elif mode == "append":
+        new_section_content = f"{old_content}\n\n{content}".strip()
+    elif mode == "prepend":
+        new_section_content = f"{content}\n\n{old_content}".strip()
+    
+    # Rebuild document
+    nyc = ZoneInfo("America/New_York")
+    now = datetime.now(nyc)
+    date_str = now.strftime("%Y-%m-%d")
+    
+    # Update frontmatter
+    frontmatter["last_updated"] = date_str
+    frontmatter["version"] = frontmatter.get("version", 1) + 1
+    
+    # Rebuild body with updated section
+    new_body_lines = []
+    in_target_section = False
+    section_written = False
+    
+    for line in body.split('\n'):
+        if line.startswith('## '):
+            current_header = line[3:].strip()
+            if current_header == target_section:
+                in_target_section = True
+                new_body_lines.append(line)
+                new_body_lines.append("")
+                new_body_lines.append(new_section_content)
+                section_written = True
+                continue
+            else:
+                in_target_section = False
+        
+        if not in_target_section:
+            new_body_lines.append(line)
+    
+    # If section wasn't in the document, add it
+    if not section_written:
+        new_body_lines.append("")
+        new_body_lines.append(f"## {target_section}")
+        new_body_lines.append("")
+        new_body_lines.append(new_section_content)
+    
+    # Update the last_updated line at the bottom
+    new_body = '\n'.join(new_body_lines)
+    if "*Last updated:" in new_body:
+        import re
+        new_body = re.sub(
+            r'\*Last updated:.*\*',
+            f'*Last updated: {date_str}*',
+            new_body
+        )
+    
+    # Combine frontmatter and body
+    import yaml
+    frontmatter_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
+    new_doc = f"---\n{frontmatter_str}---\n\n{new_body}"
+    
+    # Write updated document
+    with open(doc_path, 'w', encoding='utf-8') as f:
+        f.write(new_doc)
+    
+    return {
+        "success": True,
+        "path": doc_path,
+        "section": target_section,
+        "mode": mode,
+        "updated_at": now.strftime("%Y-%m-%d %H:%M:%S ET"),
+        "new_version": frontmatter["version"],
+        "content": new_section_content,
+    }
