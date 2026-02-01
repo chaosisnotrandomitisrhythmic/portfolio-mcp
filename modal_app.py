@@ -61,18 +61,19 @@ local_src = Path(__file__).parent / "src"
 oauth_dict = modal.Dict.from_name("portfolio-mcp-oauth", create_if_missing=True)
 
 # Build the container image with all dependencies
-# Mount local source code for development
+# Using copy=True and force_build=True to ensure fresh code
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.11", force_build=True)
     .pip_install(
-        "fastmcp>=2.12.0",  # 2.12.0+ required for GoogleProvider
+        "fastmcp==2.14.4",  # Latest version for protocol 2025-06-18 support
         "fastapi>=0.115.0",
         "pandas>=2.0.0",
         "polygon-api-client>=1.14.0",
         # Langfuse observability
         "langfuse>=3.0.0",
+        force_build=True,
     )
-    .add_local_dir(local_src, remote_path="/root/src")
+    .add_local_dir(local_src, remote_path="/root/src", copy=True)  # copy=True embeds in image
 )
 
 # Langfuse secret for observability
@@ -85,7 +86,6 @@ langfuse_secret = modal.Secret.from_name("langfuse")
         modal.Secret.from_name("polygon-api-key"),
         modal.Secret.from_name("google-oauth"),
         modal.Secret.from_name("mcp-allowed-emails"),
-        modal.Secret.from_name("mcp-jwt-key"),
         langfuse_secret,
     ],
 )
@@ -158,6 +158,8 @@ def web():
             return list(oauth_dict.keys())
 
     # Configure Google OAuth
+    # Note: FastMCP 2.14.x doesn't support jwt_signing_key (added in 3.x)
+    # It will derive a signing key from the client_secret automatically
     auth_provider = GoogleProvider(
         client_id=os.environ["GOOGLE_CLIENT_ID"],
         client_secret=os.environ["GOOGLE_CLIENT_SECRET"],
@@ -166,20 +168,28 @@ def web():
             "openid",
             "https://www.googleapis.com/auth/userinfo.email",
         ],
-        jwt_signing_key=os.environ["JWT_SIGNING_KEY"],
         client_storage=ModalDictStore(),
     )
 
-    # Configure the imported MCP server with auth and middleware
+    # Configure the imported MCP server with auth
     mcp.auth = auth_provider
 
-    # Add auth + tracing middleware
-    mcp.add_middleware(
-        AuthAndTracingMiddleware(
-            allowed_emails=ALLOWED_EMAILS,
-            require_auth=True,
-        )
-    )
+    # TODO [CHA-64]: Re-enable middleware after fixing compatibility issue
+    # The AuthAndTracingMiddleware causes this error with FastMCP 2.14.4 + HTTP transport:
+    #   "Failed to validate request: the first argument must be callable"
+    # This appears to be a compatibility issue between the middleware's on_call_tool
+    # hook and FastMCP's streamable-http transport.
+    # Possible fixes to investigate:
+    #   1. Update middleware to match FastMCP 2.14.x middleware API
+    #   2. Check if Langfuse's @observe decorator conflicts with FastMCP middleware
+    #   3. Try FastMCP 3.x beta which may have different middleware behavior
+    #
+    # mcp.add_middleware(
+    #     AuthAndTracingMiddleware(
+    #         allowed_emails=ALLOWED_EMAILS,
+    #         require_auth=True,
+    #     )
+    # )
 
     # Create the HTTP app
     return mcp.http_app(
