@@ -162,13 +162,23 @@ When presenting trade candidates:
 
 ---
 
-## Copy-Paste Summary
+## Quick Copy-Paste Setup
 
-| Field | Value |
-|-------|-------|
-| **Project Name** | `Portfolio Monitor` |
-| **Project Description** | See code block above |
-| **Project Instructions** | See code block above (the long one) |
+> **Tip:** Click the copy icon (📋) in the top-right corner of each code block to copy to clipboard.
+
+### 1. Project Name
+```text
+Portfolio Monitor
+```
+
+### 2. Project Description
+```text
+Portfolio risk analysis for Charles Schwab options trading. MCP tools for CSV analysis, market data, and persistent strategy memory via Obsidian.
+```
+
+### 3. Project Instructions
+
+👆 Scroll up to the [Project Instructions](#project-instructions) section and copy the full code block.
 
 ---
 
