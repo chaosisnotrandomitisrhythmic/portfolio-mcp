@@ -68,6 +68,8 @@ Core business logic including:
 - `get_option_chain(symbol, ...)` - Option chains with Greeks
 - `find_covered_call(symbol, ...)` - Optimal CC candidates
 - `find_cash_secured_put(symbol, ...)` - Optimal CSP candidates
+- `get_portfolio_context(section)` - Read Obsidian context document
+- `update_portfolio_context(section, content, mode)` - Update context sections
 
 ### src/portfolio_mcp/server.py
 FastMCP server that wraps tools.py functions as MCP tools.
@@ -93,6 +95,28 @@ The code loads from `.env` file automatically. No need to set in Claude Desktop 
 2. **Greeks are real** (from ORATS), not estimated
 3. **Bid/ask quotes require Advanced plan** ($199/mo) - not available on Starter
 4. **API key in .env is gitignored** - Never commit actual keys
+
+## Portfolio Context (Obsidian Integration)
+
+The server can read/write a context document in Obsidian for persistent memory.
+
+### Document Location
+```
+~/Documents/obsedian/chaos_isrhythmic/portfolio-manager/Portfolio_Context.md
+```
+
+### Sections
+- Strategy Overview
+- Current Holdings & Thesis
+- Decision Framework
+- Risk Management
+- Lessons Learned
+- Operational Procedures
+- Open Questions
+
+### Tools
+- `get_portfolio_context(section)` - Returns full doc or specific section
+- `update_portfolio_context(section, content, mode)` - Updates a section (replace/append/prepend)
 
 ## Testing Changes
 
@@ -154,9 +178,13 @@ tail -f ~/Library/Logs/Claude/mcp-server-portfolio-mcp.log
 
 ## Cloud Deployment (Modal)
 
+> **⚠️ CURRENTLY OFFLINE** - The remote deployment is disabled due to a middleware
+> compatibility issue with FastMCP 2.14.x HTTP transport. See [CHA-64] for tracking.
+> Use the local server for now.
+
 The server can be deployed to Modal for remote/mobile access.
 
-### URL
+### URL (when active)
 https://chaosisnotrandomitisrhythmic--portfolio-mcp-web.modal.run
 
 ### Modal Secrets Required
