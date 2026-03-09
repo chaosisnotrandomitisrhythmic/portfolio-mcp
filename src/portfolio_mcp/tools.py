@@ -12,6 +12,7 @@ import json
 import os
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -1020,10 +1021,239 @@ def find_cash_secured_put(
 
 
 # =============================================================================
+# Position Cost Basis Analysis (Schwab Transaction CSV)
+# =============================================================================
+
+
+def analyze_position_cost_basis(csv_content: str, symbol: str) -> dict:
+    """Analyze true cost basis for a position from Schwab transaction history.
+
+    Parses a Schwab transaction CSV export and calculates the premium-adjusted
+    cost basis by summing all option premium collected (Sell to Open) against
+    the share acquisition cost (Buy/Assigned).
+
+    Args:
+        csv_content: Raw CSV content from Schwab transaction export
+        symbol: Stock ticker to analyze (e.g., 'SOFI')
+
+    Returns:
+        dict with acquisition details, premium history, adjusted cost basis,
+        and ROAS metrics including current price comparison.
+    """
+    symbol = symbol.upper()
+
+    # Parse CSV - Schwab CSVs have quoted fields
+    df = pd.read_csv(io.StringIO(csv_content))
+    df.columns = df.columns.str.strip().str.strip('"')
+
+    # Clean Amount column - remove $, commas, quotes, convert to float
+    if "Amount" in df.columns:
+        df["Amount"] = (
+            df["Amount"]
+            .astype(str)
+            .str.replace("$", "", regex=False)
+            .str.replace(",", "", regex=False)
+            .str.replace('"', "", regex=False)
+            .str.strip()
+        )
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+
+    # Clean Price column
+    if "Price" in df.columns:
+        df["Price"] = (
+            df["Price"]
+            .astype(str)
+            .str.replace("$", "", regex=False)
+            .str.replace(",", "", regex=False)
+            .str.replace('"', "", regex=False)
+            .str.strip()
+        )
+        df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
+
+    # Clean Quantity column
+    if "Quantity" in df.columns:
+        df["Quantity"] = pd.to_numeric(
+            df["Quantity"].astype(str).str.strip().str.strip('"'),
+            errors="coerce",
+        )
+
+    # Filter for this symbol - match both equity and option rows
+    mask = df["Symbol"].astype(str).str.contains(symbol, case=False, na=False)
+    txns = df[mask].copy()
+
+    if txns.empty:
+        return {"error": f"No transactions found for {symbol}"}
+
+    # Separate transaction types
+    shares_acquired = 0
+    acquisition_cost = 0.0
+    acquisition_details = []
+
+    premium_collected = 0.0
+    premium_history = []
+    fees_total = 0.0
+
+    # Clean Fees column
+    if "Fees & Comm" in txns.columns:
+        txns["Fees & Comm"] = (
+            txns["Fees & Comm"]
+            .astype(str)
+            .str.replace("$", "", regex=False)
+            .str.replace(",", "", regex=False)
+            .str.replace('"', "", regex=False)
+            .str.strip()
+        )
+        txns["Fees & Comm"] = pd.to_numeric(txns["Fees & Comm"], errors="coerce")
+
+    for _, row in txns.iterrows():
+        action = str(row.get("Action", "")).strip()
+        amount = row.get("Amount", 0)
+        qty = row.get("Quantity", 0)
+        price = row.get("Price", 0)
+        fees = row.get("Fees & Comm", 0)
+        desc = str(row.get("Description", ""))
+        date = str(row.get("Date", "")).strip()
+
+        if pd.isna(amount):
+            amount = 0
+        if pd.isna(qty):
+            qty = 0
+        if pd.isna(price):
+            price = 0
+        if pd.isna(fees):
+            fees = 0
+
+        # Share acquisitions (Buy or Assigned for equity)
+        if action in ("Buy", "Assigned") and symbol in str(row.get("Symbol", "")) and "P" not in str(row.get("Symbol", "")).replace(symbol, "").split()[0:1]:
+            # Check if this is a stock buy (not an option assignment record)
+            sym_field = str(row.get("Symbol", "")).strip()
+            if sym_field == symbol:
+                shares_acquired += int(qty)
+                acquisition_cost += abs(amount)
+                acquisition_details.append({
+                    "date": date,
+                    "shares": int(qty),
+                    "price": round(price, 2),
+                    "cost": round(abs(amount), 2),
+                })
+
+        # Premium collected (Sell to Open on options)
+        elif action == "Sell to Open":
+            premium_collected += amount
+            fees_total += fees
+            # Parse option details from description/symbol
+            option_sym = str(row.get("Symbol", "")).strip()
+            premium_history.append({
+                "date": date,
+                "option": option_sym,
+                "contracts": int(qty),
+                "price_per_contract": round(price, 2),
+                "net_premium": round(amount, 2),
+                "fees": round(fees, 2),
+            })
+
+        # Premium paid (Buy to Close)
+        elif action == "Buy to Close":
+            premium_collected += amount  # amount is negative for buys
+            fees_total += fees
+            option_sym = str(row.get("Symbol", "")).strip()
+            premium_history.append({
+                "date": date,
+                "option": option_sym,
+                "contracts": int(qty),
+                "price_per_contract": round(price, 2),
+                "net_premium": round(amount, 2),
+                "fees": round(fees, 2),
+                "action": "Buy to Close",
+            })
+
+    if shares_acquired == 0:
+        return {"error": f"No share acquisitions found for {symbol}"}
+
+    # Calculate adjusted cost basis
+    raw_cost_per_share = acquisition_cost / shares_acquired
+    premium_per_share = premium_collected / shares_acquired
+    adj_cost_basis_total = acquisition_cost - premium_collected
+    adj_cost_per_share = adj_cost_basis_total / shares_acquired
+
+    # Get current price for ROAS
+    try:
+        quote = get_stock_quote(symbol)
+        current_price = quote.get("price", 0)
+    except Exception:
+        current_price = 0
+
+    # Calculate P&L
+    current_value = current_price * shares_acquired
+    raw_pnl = current_value - acquisition_cost
+    adj_pnl = current_value - adj_cost_basis_total
+    raw_pnl_pct = (raw_pnl / acquisition_cost) * 100 if acquisition_cost else 0
+    adj_pnl_pct = (adj_pnl / adj_cost_basis_total) * 100 if adj_cost_basis_total else 0
+    premium_offset_pct = (premium_collected / abs(raw_pnl)) * 100 if raw_pnl != 0 else 0
+
+    # Calculate annualized premium return
+    if premium_history:
+        first_date_str = premium_history[-1]["date"].split(" as of ")[-1].strip()
+        try:
+            first_date = datetime.strptime(first_date_str, "%m/%d/%Y")
+            days_active = (datetime.now() - first_date).days
+            if days_active > 0:
+                annualized_premium_return = (premium_collected / acquisition_cost) * (365 / days_active) * 100
+            else:
+                annualized_premium_return = 0
+        except (ValueError, TypeError):
+            days_active = 0
+            annualized_premium_return = 0
+    else:
+        days_active = 0
+        annualized_premium_return = 0
+
+    return {
+        "symbol": symbol,
+        "shares": shares_acquired,
+        "acquisition": {
+            "total_cost": round(acquisition_cost, 2),
+            "cost_per_share": round(raw_cost_per_share, 2),
+            "details": acquisition_details,
+        },
+        "premium": {
+            "total_collected": round(premium_collected, 2),
+            "total_fees": round(fees_total, 2),
+            "per_share": round(premium_per_share, 2),
+            "cycles": len([p for p in premium_history if p.get("action") != "Buy to Close"]),
+            "history": premium_history,
+        },
+        "cost_basis": {
+            "schwab_total": round(acquisition_cost, 2),
+            "schwab_per_share": round(raw_cost_per_share, 2),
+            "adj_total": round(adj_cost_basis_total, 2),
+            "adj_per_share": round(adj_cost_per_share, 2),
+            "premium_offset": round(premium_collected, 2),
+        },
+        "current": {
+            "price": round(current_price, 2),
+            "value": round(current_value, 2),
+            "raw_pnl": round(raw_pnl, 2),
+            "raw_pnl_pct": round(raw_pnl_pct, 2),
+            "adj_pnl": round(adj_pnl, 2),
+            "adj_pnl_pct": round(adj_pnl_pct, 2),
+            "premium_offset_of_loss": round(premium_offset_pct, 2) if raw_pnl < 0 else None,
+        },
+        "roas": {
+            "total_premium_return": round((premium_collected / acquisition_cost) * 100, 2),
+            "days_active": days_active,
+            "annualized_premium_return": round(annualized_premium_return, 2),
+            "min_cc_strike": round(adj_cost_per_share, 2),
+            "min_cc_strike_note": f"Sell CCs at ${round(adj_cost_per_share, 2)}+ to preserve all premium gains",
+        },
+    }
+
+
+# =============================================================================
 # Portfolio Context Memory (Obsidian Integration)
 # =============================================================================
 
-CONTEXT_DOC_PATH = "/Users/chaosisnotrandomitisrythmic/Documents/obsedian/chaos_isrhythmic/portfolio-manager/Portfolio_Context.md"
+CONTEXT_DOC_PATH = str(Path.home() / "Documents" / "refuse_to_choose" / "portfolio-manager" / "Portfolio_Context.md")
 
 # Valid section names for the context document
 VALID_SECTIONS = [

@@ -13,6 +13,7 @@ from fastmcp import FastMCP
 
 from .tools import (
     analyze_portfolio,
+    analyze_position_cost_basis,
     find_cash_secured_put,
     find_covered_call,
     generate_research_prompts,
@@ -251,6 +252,34 @@ def mcp_find_cash_secured_put(
         max_dte=max_dte,
         min_premium_pct=min_premium_pct,
     )
+    return json.dumps(result, indent=2)
+
+
+# =============================================================================
+# Position Analysis Tools
+# =============================================================================
+
+
+@mcp.tool(annotations={"title": "Analyze Position Cost Basis", "readOnlyHint": True})
+def mcp_analyze_position_cost_basis(csv_content: str, symbol: str) -> str:
+    """Calculate true premium-adjusted cost basis from Schwab transaction history.
+
+    Parses a Schwab transaction CSV and computes:
+    - Total acquisition cost (shares bought/assigned)
+    - All premium collected (CSPs + CCs, net of Buy to Close)
+    - Premium-adjusted cost basis per share
+    - Current P&L on both raw and adjusted basis
+    - ROAS metrics (annualized premium return, days active)
+    - Minimum CC strike to preserve premium gains
+
+    Args:
+        csv_content: Raw CSV from Schwab transaction export (filtered to one symbol)
+        symbol: Stock ticker to analyze (e.g., 'SOFI', 'NVDA')
+
+    Returns:
+        JSON with acquisition, premium history, cost basis, current P&L, and ROAS
+    """
+    result = analyze_position_cost_basis(csv_content, symbol)
     return json.dumps(result, indent=2)
 
 
